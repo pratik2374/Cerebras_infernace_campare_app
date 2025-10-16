@@ -80,7 +80,7 @@ def call_cerebras(prompt: str, model: str) -> Tuple[Optional[str], float, Option
         )
         latency = time.time() - start_time
         # SDK response structure per plan.md
-        content = response.completion.message["content"]
+        content = response.choices[0].message.content
         return content, latency, None
     except Exception as exc:  # noqa: BLE001
         latency = time.time() - start_time
