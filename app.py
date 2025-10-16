@@ -11,25 +11,55 @@ import streamlit as st
 def set_page_config() -> None:
     st.set_page_config(page_title="Cerebras vs OpenAI – Comparator", page_icon="⚖️", layout="wide")
 
+with st.sidebar:
+    # === BRANDING SECTION ===
+    st.markdown(
+        "<div style='text-align: center; margin: 2px 0;'>"
+        "<a href='https://www.buildfastwithai.com/' target='_blank' style='text-decoration: none;'>"
+        "<div style='border: 2px solid #e0e0e0; border-radius: 6px; padding: 4px; "
+        "background: linear-gradient(145deg, #ffffff, #f5f5f5); "
+        "box-shadow: 0 2px 6px rgba(0,0,0,0.1); "
+        "transition: all 0.3s ease; display: inline-block; width: 100%;'>"
+        "<img src='https://github.com/Shubhwithai/chat-with-qwen/blob/main/company_logo.png?raw=true' "
+        "style='width: 100%; max-width: 100%; height: auto; border-radius: 8px; display: block;' "
+        "alt='Build Fast with AI Logo'>"
+        "</div>"
+        "</a>"
+    "</div>",
+    unsafe_allow_html=True
+    )
 
 def inject_styles() -> None:
     st.markdown(
         """
         <style>
+        :root { color-scheme: light dark; }
         .app-title { font-weight: 800; font-size: 1.6rem; margin-bottom: 0.75rem; }
-        .subtle { color: #646A73; }
-        .card { border-radius: 14px; padding: 16px 18px; border: 1px solid rgba(0,0,0,0.06);
-                box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.06); }
-        .cerebras-card { background: #F0F7FF; }
-        .openai-card { background: #F6F0FF; }
-        .metric-card { background: #FAFAFC; }
+        .subtle { opacity: 0.8; }
+        .card { border-radius: 14px; padding: 16px 18px; border: 1px solid rgba(127,127,127,0.25);
+                box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.06); color: inherit; }
+        .metric-card { }
         .model-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem;
-                      border: 1px solid rgba(0,0,0,0.08); background: white; }
-        .gradient-winner { font-weight: 800; background: linear-gradient(90deg,#7C3AED,#2563EB);
+                      border: 1px solid rgba(127,127,127,0.25); background: transparent; color: inherit; }
+        .gradient-winner { font-weight: 800; background: linear-gradient(90deg,#8B5CF6,#3B82F6);
                            -webkit-background-clip: text; background-clip: text; color: transparent; }
         .latency { font-weight: 700; }
         .cost { font-weight: 700; }
         .mono { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; }
+
+        /* Theme-aware card backgrounds */
+        @media (prefers-color-scheme: light) {
+          .cerebras-card { background: #E6F0FF; }
+          .openai-card { background: #EFE6FF; }
+          .metric-card { background: #F5F7FB; }
+        }
+        @media (prefers-color-scheme: dark) {
+          .cerebras-card { background: #0F1B2E; }
+          .openai-card { background: #1A1430; }
+          .metric-card { background: #111827; }
+        }
+
+        .error-text { color: #ef4444; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -125,11 +155,17 @@ def main() -> None:
     set_page_config()
     inject_styles()
 
-    st.markdown('<div class="app-title">⚖️ Cerebras vs OpenAI Comparator</div>', unsafe_allow_html=True)
-    st.markdown(
-        "<div class=\"subtle\">Compare model responses, latency, and cost side-by-side.</div>",
-        unsafe_allow_html=True,
+    st.title('⚖️ Cerebras vs OpenAI Comparator')
+    st.write(
+        "Compare model responses, latency, and cost side-by-side."
     )
+    with st.expander("About This App"):
+        st.markdown(
+            "- Get your [Cerebras](https://chat.cerebras.ai/) and [OpenAI API](https://platform.openai.com/api-keys) Key\n"
+            "- Enter Your prompt and get evaulation on time and speed metrics\n"
+            "- The Cost is estimation generated on Cost per token"
+        )
+        
 
     # Sidebar inputs
     with st.sidebar:
@@ -156,59 +192,77 @@ def main() -> None:
             index=0,
         )
 
-    # Chat input
-    prompt = st.text_area("Your prompt", placeholder="Explain transformers in simple terms.", height=120)
-    col_btn, _ = st.columns([1, 5])
-    with col_btn:
-        compare_clicked = st.button("Compare", type="primary")
+    # Initialize session state
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []  # list[dict]
 
-    if compare_clicked:
+    # Renderer for a single turn
+    def render_turn(turn: Dict[str, Any]) -> None:
+        st.chat_message("user").markdown(turn["prompt"])  
+        bot = st.chat_message("assistant")
+        with bot:
+            # Two response cards
+            col_left, col_right = st.columns(2)
+            with col_left:
+                st.markdown(
+                    f"<div class='card cerebras-card'>"
+                    f"<div class='model-pill mono'>🧠 Cerebras · {turn['cerebras']['model']}</div>"
+                    f"<div style='height:8px'></div>"
+                    f"<div class='subtle'>Latency: <span class='latency'>{format_seconds(turn['cerebras']['latency'])}</span></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                if turn["cerebras"]["content"]:
+                    st.markdown(turn["cerebras"]["content"])  
+                if turn["cerebras"]["error"]:
+                    st.markdown(f"<span class='error-text'>{turn['cerebras']['error']}</span>", unsafe_allow_html=True)
+
+            with col_right:
+                st.markdown(
+                    f"<div class='card openai-card'>"
+                    f"<div class='model-pill mono'>⚡ OpenAI · {turn['openai']['model']}</div>"
+                    f"<div style='height:8px'></div>"
+                    f"<div class='subtle'>Latency: <span class='latency'>{format_seconds(turn['openai']['latency'])}</span></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                if turn["openai"]["content"]:
+                    st.markdown(turn["openai"]["content"])  
+                if turn["openai"]["error"]:
+                    st.markdown(f"<span class='error-text'>{turn['openai']['error']}</span>", unsafe_allow_html=True)
+
+            # Summary card
+            st.markdown(
+                f"<div class='card metric-card'>"
+                f"<div class='mono'>{turn['summary']['lat_line']}</div>"
+                f"<div style='height:6px'></div>"
+                f"<div class='mono'>{turn['summary']['cost_line']}</div>"
+                f"<div style='height:6px'></div>"
+                f"<div class='mono'>{turn['summary']['winner_line']}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        st.divider()
+
+    # Render full history first (so users can scroll)
+    for t in st.session_state.chat_history:
+        render_turn(t)
+
+    # Chat input
+    user_prompt = st.chat_input("Type your message…")
+    if user_prompt is not None and user_prompt.strip():
         if not cerebras_api_key or not openai_api_key:
             st.warning("Please provide both API keys in the sidebar.")
-            return
-
-        if not prompt.strip():
-            st.warning("Please enter a prompt to compare.")
             return
 
         # Set environment variables for SDKs
         os.environ["CEREBRAS_API_KEY"] = cerebras_api_key
         os.environ["OPENAI_API_KEY"] = openai_api_key
 
-        placeholder = st.empty()
-        with placeholder.container():
+        with st.chat_message("assistant"):
             st.info("Running both inferences concurrently…")
 
-        results = safe_async_run(run_concurrently(prompt, cerebras_model, openai_model))
-        placeholder.empty()
-
-        # Layout two cards
-        col_left, col_right = st.columns(2)
-        with col_left:
-            st.markdown(
-                f"<div class='card cerebras-card'>"
-                f"<div class='model-pill mono'>🧠 Cerebras · {cerebras_model}</div>"
-                f"<div style='height:8px'></div>"
-                f"<div class='subtle'>Latency: <span class='latency'>{format_seconds(results['cerebras']['latency'])}</span></div>"
-                f"<div style='height:8px'></div>"
-                f"<div>" + (st._escape(results['cerebras']['content']) if results['cerebras']['content'] else "") + "</div>"
-                f"<div style='color:#B00020;'>{results['cerebras']['error'] or ''}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-        with col_right:
-            st.markdown(
-                f"<div class='card openai-card'>"
-                f"<div class='model-pill mono'>⚡ OpenAI · {openai_model}</div>"
-                f"<div style='height:8px'></div>"
-                f"<div class='subtle'>Latency: <span class='latency'>{format_seconds(results['openai']['latency'])}</span></div>"
-                f"<div style='height:8px'></div>"
-                f"<div>" + (st._escape(results['openai']['content']) if results['openai']['content'] else "") + "</div>"
-                f"<div style='color:#B00020;'>{results['openai']['error'] or ''}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+        results = safe_async_run(run_concurrently(user_prompt, cerebras_model, openai_model))
 
         # Costs (N/A by default) – you can replace token estimation with real usage when available
         tokens_estimate: Optional[int] = None
@@ -247,21 +301,34 @@ def main() -> None:
             else "🏆 Winner: N/A"
         )
 
-        st.markdown(
-            f"<div class='card metric-card'>"
-            f"<div class='mono'>{lat_line}</div>"
-            f"<div style='height:6px'></div>"
-            f"<div class='mono'>{cost_line}</div>"
-            f"<div style='height:6px'></div>"
-            f"<div class='mono'>{winner_line}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        # Append to history
+        turn: Dict[str, Any] = {
+            "prompt": user_prompt,
+            "cerebras": {
+                "model": cerebras_model,
+                "content": results["cerebras"]["content"],
+                "latency": results["cerebras"]["latency"],
+                "error": results["cerebras"]["error"],
+            },
+            "openai": {
+                "model": openai_model,
+                "content": results["openai"]["content"],
+                "latency": results["openai"]["latency"],
+                "error": results["openai"]["error"],
+            },
+            "summary": {
+                "lat_line": lat_line,
+                "cost_line": cost_line,
+                "winner_line": winner_line,
+            },
+        }
+        st.session_state.chat_history.append(turn)
+
+        # Render the new turn
+        render_turn(turn)
 
 
 if __name__ == "__main__":
     main()
-
-
 
 
